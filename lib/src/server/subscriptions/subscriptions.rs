@@ -322,6 +322,9 @@ impl Subscriptions {
             });
             // The request has timed out if the timestamp plus hint exceeds the input time
             // TODO unwrap logic needs to change
+            trace!("Request timestamp: {:?}", &request_timestamp);
+            trace!("Now: {:?}", &now);
+            trace!("let signed_duration_since: Duration = {}.signed_duration_since({}).to_std().unwrap();", &now, &request_timestamp);
             let signed_duration_since: Duration = now.signed_duration_since(request_timestamp).to_std().unwrap();
             if signed_duration_since > publish_request_timeout {
                 debug!("Publish request {} has expired - timestamp = {:?}, expiration hint = {}, publish timeout = {:?}, time now = {:?}, ", request_header.request_handle, request_timestamp, request_timestamp, publish_request_timeout, now);
