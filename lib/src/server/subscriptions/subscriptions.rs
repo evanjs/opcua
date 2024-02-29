@@ -315,17 +315,17 @@ impl Subscriptions {
         self.publish_request_queue.retain(|request| {
             let request_header = &request.request.request_header;
             let request_timestamp: DateTimeUtc = request_header.timestamp.into();
-            let publish_request_timeout = Duration::from_millis(if request_header.timeout_hint > 0 && (request_header.timeout_hint as i64) < publish_request_timeout {
-                request_header.timeout_hint as u64
+            let publish_request_timeout = chrono::Duration::milliseconds(if request_header.timeout_hint > 0 && (request_header.timeout_hint as i64) < publish_request_timeout {
+                request_header.timeout_hint as i64
             } else {
-                publish_request_timeout as u64
+                publish_request_timeout as i64
             });
             // The request has timed out if the timestamp plus hint exceeds the input time
             // TODO unwrap logic needs to change
             trace!("Request timestamp: {:?}", &request_timestamp);
             trace!("Now: {:?}", &now);
-            trace!("let signed_duration_since: Duration = {}.signed_duration_since({}).to_std().unwrap();", &now, &request_timestamp);
-            let signed_duration_since: Duration = now.signed_duration_since(request_timestamp).to_std().unwrap();
+            trace!("let signed_duration_since: Duration = {}.signed_duration_since({});", &now, &request_timestamp);
+            let signed_duration_since: chrono::Duration = now.signed_duration_since(request_timestamp);
             if signed_duration_since > publish_request_timeout {
                 debug!("Publish request {} has expired - timestamp = {:?}, expiration hint = {}, publish timeout = {:?}, time now = {:?}, ", request_header.request_handle, request_timestamp, request_timestamp, publish_request_timeout, now);
                 expired_publish_responses.push_front(PublishResponseEntry {
