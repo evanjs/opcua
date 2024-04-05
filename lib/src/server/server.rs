@@ -625,11 +625,13 @@ impl Server {
 
     /// Create a new transport.
     pub fn new_transport(&self) -> TcpTransport {
+        let session_manager = Arc::new(RwLock::new(SessionManager::default()));
+
         TcpTransport::new(
             self.certificate_store.clone(),
             self.server_state.clone(),
             self.address_space.clone(),
-            self.session_manager.clone(),
+            session_manager
         )
     }
 
