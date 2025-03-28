@@ -16,7 +16,7 @@ use crate::types::{
 };
 
 use crate::core::handle::Handle;
-
+use crate::log_enabled;
 use crate::server::{
     address_space::AddressSpace,
     constants,
@@ -602,7 +602,7 @@ impl Subscription {
 
         // Extra state debugging
         {
-            use log::Level::Trace;
+            use tracing_log::log::Level::Trace;
             if log_enabled!(Trace) {
                 trace!(
                     r#"State inputs:

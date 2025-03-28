@@ -44,6 +44,7 @@ use crate::client::{
     message_queue::{self, MessageQueue},
     session::session_state::{ConnectionState, ConnectionStateMgr, SessionState},
 };
+use crate::log;
 
 //todo move this struct to core module
 #[derive(Debug)]

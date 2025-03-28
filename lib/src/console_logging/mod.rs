@@ -38,24 +38,24 @@ pub fn init() {
 
             let mut style = f.style();
             match record.metadata().level() {
-                log::Level::Error => {
+                tracing_log::log::Level::Error => {
                     // White on red
                     style.set_color(Color::White);
                     style.set_bg(Color::Red);
                 }
-                log::Level::Warn => {
+                tracing_log::log::Level::Warn => {
                     // Yellow on black
                     style.set_color(Color::Yellow);
                 }
-                log::Level::Info => {
+                tracing_log::log::Level::Info => {
                     // Blue on black
                     style.set_color(Color::Cyan);
                 }
-                log::Level::Debug => {
+                tracing_log::log::Level::Debug => {
                     // Blue
                     style.set_color(Color::Green);
                 }
-                log::Level::Trace => {
+                tracing_log::log::Level::Trace => {
                     // Grey
                     style.set_color(Color::Ansi256(8));
                 }

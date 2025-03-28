@@ -28,6 +28,7 @@ use crate::{
     crypto::SecurityPolicy,
     sync::*,
     types::{status_code::StatusCode, *},
+    log_enabled
 };
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -283,7 +284,7 @@ impl SessionState {
             let subscription_acknowledgements: Vec<SubscriptionAcknowledgement> =
                 self.subscription_acknowledgements.drain(..).collect();
             // Debug sequence nrs
-            if log_enabled!(log::Level::Debug) {
+            if log_enabled!(tracing_log::log::Level::Debug) {
                 let sequence_nrs: Vec<u32> = subscription_acknowledgements
                     .iter()
                     .map(|ack| ack.sequence_number)

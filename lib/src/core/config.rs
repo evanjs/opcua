@@ -59,7 +59,7 @@ pub trait Config: serde::Serialize {
                 Err(())
             }
         } else {
-            error!("Cannot open configuration file {}", path.to_string_lossy());
+            tracing::error!("Cannot open configuration file {}", path.to_string_lossy());
             Err(())
         }
     }
