@@ -84,6 +84,7 @@ impl MessageHandler {
         }
     }
 
+    #[tracing::instrument(skip(self, sender))]
     pub fn handle_message(
         &mut self,
         request_id: u32,
@@ -415,6 +416,10 @@ impl MessageHandler {
                 })
             }
             SupportedMessage::DeleteSubscriptionsRequest(request) => {
+                debug!(
+                    ?request,
+                    "DeleteSubscriptionsRequest message received"
+                );
                 self.validate_service_request(message, DELETE_SUBSCRIPTIONS_COUNT, |session, _| {
                     Some(
                         self.subscription_service
@@ -430,6 +435,7 @@ impl MessageHandler {
                     )
                 }),
             SupportedMessage::PublishRequest(request) => {
+                debug!("PublishRequest message received");
                 self.validate_service_request(message, "", |session, _| {
                     // TODO publish request diagnostics have to be done asynchronously too
 

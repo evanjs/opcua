@@ -1,7 +1,9 @@
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
-extern crate log;
+extern crate tracing;
+#[macro_use]
+extern crate tracing_log;
 #[cfg(test)]
 extern crate tempdir;
 #[macro_use]
@@ -14,6 +16,11 @@ extern crate actix_web;
 extern crate serde_json;
 #[macro_use]
 extern crate derivative;
+
+#[macro_use]
+pub use tracing_log::log::log_enabled;
+
+pub use tracing_log::log as log;
 
 // Synchronization structs. This is a wrapper mod around `parking_lot` types so opcua users don't have
 // to reference that other crate.

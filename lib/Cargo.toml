@@ -42,7 +42,6 @@ vendored-openssl = ["openssl/vendored"]
 http = ["actix-files", "actix-web"]
 
 [dependencies]
-log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 # Enable deadlock_detection if there are any deadlocks in sync code
 parking_lot = { version = "0.12", features = ["send_guard"] }
@@ -67,6 +66,9 @@ openssl-sys = "0.9"
 gethostname = "0.4"
 libc = "0.2"
 foreign-types = "0.3"
+tracing-log = "0.2.0"
+tracing = "0.1.41"
+
 # dependencies below are only required when certain features are enabled
 rumqttc = { version = "0.23", optional = true }
 env_logger = { version = "0.10", optional = true }

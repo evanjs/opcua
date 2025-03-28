@@ -338,6 +338,7 @@ impl MonitoredItem {
         }
     }
 
+    #[tracing::instrument(skip(self, _address_space, node))]
     fn check_for_data_change(
         &mut self,
         _address_space: &AddressSpace,
