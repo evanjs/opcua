@@ -117,7 +117,7 @@ pub mod constants {
     /// something that requires huge accuracy.
     pub const HELLO_TIMEOUT_POLL_MS: u64 = 500;
     /// Maximum time in MS that a session can be inactive before a timeout
-    pub const MAX_SESSION_TIMEOUT: f64 = 60000f64;
+    pub const MAX_SESSION_TIMEOUT: f64 = 600000f64;
     /// Maximum size in bytes that a request message is allowed to be
     pub const MAX_REQUEST_MESSAGE_SIZE: u32 = 32768;
     /// Default keep alive count

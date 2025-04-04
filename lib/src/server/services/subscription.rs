@@ -272,11 +272,13 @@ impl SubscriptionService {
             .subscriptions()
             .find_notification_message(request.subscription_id, request.retransmit_sequence_number);
         if let Ok(notification_message) = result {
+            info!("Republish {:?}", notification_message);
             session.reset_subscription_lifetime_counter(request.subscription_id);
             let response = RepublishResponse {
                 response_header: ResponseHeader::new_good(&request.request_header),
                 notification_message,
             };
+            debug!("Republish response {:?}", response);
             response.into()
         } else {
             self.service_fault(&request.request_header, result.unwrap_err())
@@ -312,6 +314,8 @@ impl SubscriptionService {
         } else {
             requested_lifetime_count
         };
+
+        debug!("Revised values: publishing interval = {:?} ms, max keep alive count = {}, lifetime count = {}", revised_publishing_interval, revised_max_keep_alive_count, revised_lifetime_count);
         (
             revised_publishing_interval,
             revised_max_keep_alive_count,

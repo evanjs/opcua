@@ -30,7 +30,7 @@ use crate::server::{
 #[derive(Clone)]
 pub struct SessionInfo {}
 
-const PUBLISH_REQUEST_TIMEOUT: i64 = 30000;
+const PUBLISH_REQUEST_TIMEOUT: i64 = 300000;
 
 lazy_static! {
     static ref NEXT_SESSION_ID: AtomicI32 = AtomicI32::new(1);

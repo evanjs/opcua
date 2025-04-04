@@ -62,6 +62,7 @@ impl Subscriptions {
         } else {
             100
         };
+        debug!("Creating subscriptions with max subscriptions = {}, publish request timeout = {}", max_subscriptions, publish_request_timeout);
         Subscriptions {
             publish_request_queue: VecDeque::with_capacity(max_publish_requests),
             publish_response_queue: VecDeque::with_capacity(max_publish_requests),
@@ -322,7 +323,8 @@ impl Subscriptions {
             });
             // The request has timed out if the timestamp plus hint exceeds the input time
             if *now > request_timestamp + publish_request_timeout {
-                debug!("Publish request {} has expired - timestamp = {:?}, expiration hint = {}, publish timeout = {:?}, time now = {:?}, ", request_header.request_handle, request_timestamp, request_timestamp, publish_request_timeout, now);
+                debug!("Publish request {} has expired - timestamp = {:?}, expiration hint = {}, publish timeout = {:?}, time now = {:?}, ",
+                    request_header.request_handle, request_timestamp, request_header.timeout_hint, publish_request_timeout, now);
                 expired_publish_responses.push_front(PublishResponseEntry {
                     request_id: request.request_id,
                     response: ServiceFault {

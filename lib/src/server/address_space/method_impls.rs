@@ -3,7 +3,7 @@
 // Copyright (C) 2017-2024 Adam Lock
 
 use std::sync::Arc;
-
+use futures::StreamExt;
 use crate::sync::*;
 use crate::types::{
     service_types::{CallMethodRequest, CallMethodResult},
@@ -97,21 +97,28 @@ impl Method for ServerResendDataMethod {
                 let mut session = trace_write_lock!(session);
                 if let Some(subscription) = session.subscriptions_mut().get_mut(*subscription_id) {
                     subscription.set_resend_data();
+                    info!("ResendData called for subscription {}", subscription_id);
+
                     return Ok(CallMethodResult {
                         status_code: StatusCode::Good,
                         input_argument_results: Some(vec![StatusCode::Good]),
                         input_argument_diagnostic_infos: None,
                         output_arguments: None,
+                    }).inspect(|r|{
+                       info!("Method handler for ResendData returns {:?}", r);
                     });
                 };
             } else {
+                error!("Method handler for ResendData returns BadSessionIdInvalid");
                 return Err(StatusCode::BadSessionIdInvalid);
             }
         }
 
         if subscription_exists_on_other_session(session_id, session_manager, *subscription_id) {
+            error!("Method handler for ResendData returns BadUserAccessDenied");
             Err(StatusCode::BadUserAccessDenied)
         } else {
+            error!("Method handler for ResendData returns BadSubscriptionIdInvalid");
             Err(StatusCode::BadSubscriptionIdInvalid)
         }
     }
