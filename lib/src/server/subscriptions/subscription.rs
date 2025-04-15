@@ -791,7 +791,10 @@ impl Subscription {
                     && p.publishing_req_queued
                     && self.keep_alive_counter == 1
                     && (!self.publishing_enabled
-                        || (self.publishing_enabled && p.notifications_available))
+                    || (self.publishing_enabled && p.notifications_available)
+                    // Special case to ensure keep-alive messages are sent when counter reaches 1
+                    || (self.publishing_enabled && self.keep_alive_counter == 1))
+
                 {
                     // State #15
                     self.start_publishing_timer();
@@ -808,6 +811,16 @@ impl Subscription {
                     // State #16
                     self.start_publishing_timer();
                     self.keep_alive_counter -= 1;
+
+                    // Special case to ensure state #15 can be entered on the next tick when keep_alive_counter reaches 1
+                    if self.keep_alive_counter == 1 {
+                        // Force timer expiry on next tick to ensure we can enter state #15
+                        // Convert publishing_interval (in seconds as f64) to std::time::Duration
+                        let duration = std::time::Duration::from_secs_f64(self.publishing_interval * 2.0);
+                        self.last_time_publishing_interval_elapsed = chrono::Utc::now() - duration;
+                        debug!("Special case: Forcing timer expiry for next tick as keep_alive_counter = 1");
+                    }
+
                     return UpdateStateResult::new(
                         HandledState::KeepAlive16,
                         UpdateStateAction::None,
@@ -1006,6 +1019,9 @@ impl Subscription {
     pub fn start_publishing_timer(&mut self) {
         self.lifetime_counter -= 1;
         trace!("Decrementing life time counter {}", self.lifetime_counter);
+
+        // Reset last_time_publishing_interval_elapsed to ensure proper timer scheduling
+        self.last_time_publishing_interval_elapsed = chrono::Utc::now();
     }
 
     pub fn subscription_id(&self) -> u32 {
