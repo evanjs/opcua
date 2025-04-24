@@ -21,6 +21,8 @@ use crate::{
         SetMonitoringModeRequest, SetPublishingModeRequest, SetTriggeringRequest, StatusCode,
         TimestampsToReturn, TransferResult, TransferSubscriptionsRequest,
     },
+    log_enabled,
+    tracing_log::log
 };
 
 use super::OnSubscriptionNotification;

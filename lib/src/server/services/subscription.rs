@@ -234,6 +234,7 @@ impl SubscriptionService {
     }
 
     /// Handles a PublishRequest. This is asynchronous, so the response will be sent later on.
+    #[tracing::instrument(skip(self, address_space, session))]
     pub fn async_publish(
         &self,
         now: &DateTimeUtc,

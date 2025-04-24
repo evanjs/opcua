@@ -4,7 +4,8 @@
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
-
+use tracing::field::{{debug, self}};
+use tracing::Span;
 use crate::sync::*;
 use crate::types::{
     service_types::{
@@ -16,7 +17,7 @@ use crate::types::{
 };
 
 use crate::core::handle::Handle;
-
+use crate::log_enabled;
 use crate::server::{
     address_space::AddressSpace,
     constants,
@@ -162,7 +163,9 @@ pub struct Subscription {
 }
 
 impl Drop for Subscription {
+    #[tracing::instrument(skip(self))]
     fn drop(&mut self) {
+        debug!("Subscription dropped");
         if self.diagnostics_on_drop {
             let mut diagnostics = trace_write_lock!(self.diagnostics);
             diagnostics.on_destroy_subscription(self);
@@ -171,6 +174,7 @@ impl Drop for Subscription {
 }
 
 impl Subscription {
+    #[tracing::instrument(skip(diagnostics))]
     pub fn new(
         diagnostics: Arc<RwLock<ServerDiagnostics>>,
         subscription_id: u32,
@@ -210,6 +214,7 @@ impl Subscription {
         subscription
     }
 
+    #[tracing::instrument(skip(self))]
     pub(crate) fn ready_to_remove(&self) -> bool {
         self.state == SubscriptionState::Closed && self.notifications.is_empty()
     }
@@ -230,6 +235,7 @@ impl Subscription {
     }
 
     /// Creates monitored items on the specified subscription, returning the creation results
+    #[tracing::instrument(skip(self, server_state, address_space, now, items_to_create, timestamps_to_return))]
     pub fn create_monitored_items(
         &mut self,
         server_state: &ServerState,
@@ -300,6 +306,9 @@ impl Subscription {
     }
 
     /// Modify the specified monitored items, returning a result for each
+    #[tracing::instrument(
+        skip(self, address_space, items_to_modify, timestamps_to_return, server_state),
+    )]
     pub fn modify_monitored_items(
         &mut self,
         server_state: &ServerState,
@@ -351,6 +360,7 @@ impl Subscription {
     }
 
     /// Sets the monitoring mode on one monitored item
+    #[tracing::instrument(skip(self))]
     pub fn set_monitoring_mode(
         &mut self,
         monitored_item_id: u32,
@@ -365,6 +375,7 @@ impl Subscription {
     }
 
     /// Delete the specified monitored items (by item id), returning a status code for each
+    #[tracing::instrument(skip(self))]
     pub fn delete_monitored_items(&mut self, items_to_delete: &[u32]) -> Vec<StatusCode> {
         self.reset_lifetime_counter();
         items_to_delete
@@ -380,6 +391,7 @@ impl Subscription {
 
     // Returns two vecs representing the server and client handles for each monitored item.
     // Called from the GetMonitoredItems impl
+    #[tracing::instrument(skip(self))]
     pub fn get_handles(&self) -> (Vec<u32>, Vec<u32>) {
         let server_handles = self
             .monitored_items
@@ -396,12 +408,29 @@ impl Subscription {
 
     /// Sets the resend data flag which means the next publish request will receive the latest value
     /// of every monitored item whether it has changed in this cycle or not.
+    #[tracing::instrument(skip(self))]
     pub fn set_resend_data(&mut self) {
         self.resend_data = true;
     }
 
     /// Tests if the publishing interval has elapsed since the last time this function in which case
     /// it returns `true` and updates its internal state.
+    #[tracing::instrument(
+        skip(self),
+        fields(
+            subscription_id = self.subscription_id,
+            last_time_publishing_interval_elapsed = ?self.last_time_publishing_interval_elapsed,
+            ?self.last_sequence_number,
+            ?self.first_message_sent,
+            publishing_interval = self.publishing_interval,
+            keep_alive_counter = self.keep_alive_counter,
+            max_keep_alive_counter = self.max_keep_alive_counter,
+            lifetime_counter = self.lifetime_counter,
+            max_lifetime_counter = self.max_lifetime_counter,
+            publishing_enabled = self.publishing_enabled,
+            resend_data = self.resend_data,
+        )
+    )]
     fn test_and_set_publishing_interval_elapsed(&mut self, now: &DateTimeUtc) -> bool {
         // Look at the last expiration time compared to now and see if it matches
         // or exceeds the publishing interval
@@ -412,15 +441,22 @@ impl Subscription {
             .to_std()
             .unwrap();
         if elapsed >= publishing_interval {
-            self.last_time_publishing_interval_elapsed = *now;
+            debug!("Publishing interval elapsed");
             true
         } else {
+            trace!("Publishing interval not elapsed");
             false
         }
     }
 
     /// Checks the subscription and monitored items for state change, messages. Returns `true`
     /// if there are zero or more notifications waiting to be processed.
+    #[tracing::instrument(
+        skip(self, address_space),
+        fields(
+            update_state_result = field::Empty
+        )
+    )]
     pub(crate) fn tick(
         &mut self,
         now: &DateTimeUtc,
@@ -428,6 +464,8 @@ impl Subscription {
         tick_reason: TickReason,
         publishing_req_queued: bool,
     ) {
+        let span = tracing::Span::current();
+
         // Check if the publishing interval has elapsed. Only checks on the tick timer.
         let publishing_interval_elapsed = match tick_reason {
             TickReason::ReceivePublishRequest => false,
@@ -466,6 +504,24 @@ impl Subscription {
         // If items have changed or subscription interval elapsed then we may have notifications
         // to send or state to update
         if notifications_available || publishing_interval_elapsed || publishing_req_queued {
+            match tick_reason {
+                TickReason::ReceivePublishRequest => {
+                    debug!(
+                        "Receive publish request"
+                    );
+                }
+                TickReason::TickTimerFired => {}
+            }
+
+            // In the tick function, right before the update_state call:
+            debug!(
+                p_timer_expired = publishing_interval_elapsed,
+                keep_alive_counter = self.keep_alive_counter,
+                pub_enabled = self.publishing_enabled,
+                notifications = notifications_available,
+                "Pre-update state",
+            );
+
             // Update the internal state of the subscription based on what happened
             let update_state_result = self.update_state(
                 tick_reason,
@@ -476,14 +532,44 @@ impl Subscription {
                     publishing_timer_expired: publishing_interval_elapsed,
                 },
             );
-            trace!(
-                "subscription tick - update_state_result = {:?}",
-                update_state_result
-            );
+            match update_state_result.update_state_action {
+                UpdateStateAction::SubscriptionExpired => {
+                    warn!("Subscription expired");
+                }
+                UpdateStateAction::None => {
+                    trace!("No action required");
+                }
+                UpdateStateAction::ReturnKeepAlive => {
+                    debug!("Returning keep alive");
+                }
+                UpdateStateAction::ReturnNotifications => {
+                    debug!("Returning notifications");
+                }
+                UpdateStateAction::SubscriptionCreated => {
+                    debug!("Subscription created");
+                }
+            }
+            span.record("update_state_result", debug(&update_state_result));
+
+            trace!("subscription tick",);
             self.handle_state_result(now, update_state_result, notification);
         }
     }
 
+    #[tracing::instrument(
+        skip(self, notification),
+        fields(
+            subscription_id =? self.subscription_id,
+            state =? self.state,
+            last_sequence_number =? self.last_sequence_number,
+            first_message_sent =? self.first_message_sent,
+            publishing_interval =? self.publishing_interval,
+            keep_alive_counter =? self.keep_alive_counter,
+            max_keep_alive_counter =? self.max_keep_alive_counter,
+            lifetime_counter =? self.lifetime_counter,
+            max_lifetime_counter =? self.max_lifetime_counter,
+        )
+    )]
     fn enqueue_notification(&mut self, notification: NotificationMessage) {
         // For sanity, check the sequence number is the expected sequence number.
         let expected_sequence_number = if self.last_sequence_number == u32::MAX {
@@ -497,17 +583,37 @@ impl Subscription {
                 expected_sequence_number, notification.sequence_number
             );
         }
-        // debug!("Enqueuing notification {:?}", notification);
+        debug!("Enqueuing notification");
         self.last_sequence_number = notification.sequence_number;
         self.notifications.push_back(notification);
     }
 
+    #[tracing::instrument(
+        skip(self),
+        fields(
+            subscription_id =? self.subscription_id,
+            state =? self.state,
+            last_sequence_number =? self.last_sequence_number,
+            first_message_sent =? self.first_message_sent,
+            publishing_interval =? self.publishing_interval,
+            keep_alive_counter =? self.keep_alive_counter,
+            max_keep_alive_counter =? self.max_keep_alive_counter,
+            lifetime_counter =? self.lifetime_counter,
+            max_lifetime_counter =? self.max_lifetime_counter,
+            publishing_enabled =? self.publishing_enabled,
+            resend_data =? self.resend_data,
+            ?self.last_time_publishing_interval_elapsed,
+            notification_sequence_number = field::Empty
+        )
+    )]
     fn handle_state_result(
         &mut self,
         now: &DateTimeUtc,
         update_state_result: UpdateStateResult,
         notification: Option<NotificationMessage>,
     ) {
+        let span = tracing::Span::current();
+
         // Now act on the state's action
         match update_state_result.update_state_action {
             UpdateStateAction::None => {
@@ -515,7 +621,10 @@ impl Subscription {
                     // Reset the next sequence number to the discarded notification
                     let notification_sequence_number = notification.sequence_number;
                     self.sequence_number.set_next(notification_sequence_number);
-                    debug!("Notification message nr {} was being ignored for a do-nothing, update state was {:?}", notification_sequence_number, update_state_result);
+                    span.record("notification_sequence_number", &notification_sequence_number);
+                    span.record("update_state_result", debug(update_state_result));
+
+                    debug!("Notification message being ignored for a do-nothing");
                 }
                 // Send nothing
             }
@@ -523,8 +632,10 @@ impl Subscription {
                 if let Some(ref notification) = notification {
                     // Reset the next sequence number to the discarded notification
                     let notification_sequence_number = notification.sequence_number;
+                    span.record("notification_sequence_number", &notification_sequence_number);
+
                     self.sequence_number.set_next(notification_sequence_number);
-                    debug!("Notification message nr {} was being ignored for a keep alive, update state was {:?}", notification_sequence_number, update_state_result);
+                    debug!("Notification message being ignored for a keep alive");
                 }
                 // Send a keep alive
                 debug!("Sending keep alive response");
@@ -537,6 +648,7 @@ impl Subscription {
             UpdateStateAction::ReturnNotifications => {
                 // Add the notification message to the queue
                 if let Some(notification) = notification {
+                    debug!("Notification message being returned");
                     self.enqueue_notification(notification);
                 }
             }
@@ -544,6 +656,7 @@ impl Subscription {
                 if notification.is_some() {
                     panic!("SubscriptionCreated got a notification");
                 }
+                debug!("Subscription status change to active / created",);
                 // Subscription was created successfully
                 //                let notification = NotificationMessage::status_change(self.sequence_number.next(), DateTime::from(now.clone()), StatusCode::Good);
                 //                self.enqueue_notification(notification);
@@ -565,6 +678,7 @@ impl Subscription {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub(crate) fn take_notification(&mut self) -> Option<NotificationMessage> {
         self.notifications.pop_front()
     }
@@ -591,6 +705,19 @@ impl Subscription {
     // * Update state action - none, return notifications, return keep alive
     // * Publishing request action - nothing, dequeue
     //
+    #[tracing::instrument(
+        skip(self, p, tick_reason),
+        fields(
+            subscription_id = self.subscription_id,
+            state = ?self.state,
+            tick_reason = ?tick_reason,
+            state_params = ?p,
+            publishing_enabled = self.publishing_enabled,
+            keep_alive_counter = self.keep_alive_counter,
+            lifetime_counter = self.lifetime_counter,
+            message_sent = self.first_message_sent,
+        )
+    )]
     pub(crate) fn update_state(
         &mut self,
         tick_reason: TickReason,
@@ -604,24 +731,27 @@ impl Subscription {
 
         // Extra state debugging
         {
-            use log::Level::Trace;
+            use tracing_log::log::Level::{Trace, Debug};
             if log_enabled!(Trace) {
-                trace!(
-                    r#"State inputs:
-    subscription_id: {} / state: {:?}
-    tick_reason: {:?} / state_params: {:?}
-    publishing_enabled: {}
-    keep_alive_counter / lifetime_counter: {} / {}
-    message_sent: {}"#,
-                    self.subscription_id,
-                    self.state,
-                    tick_reason,
-                    p,
-                    self.publishing_enabled,
-                    self.keep_alive_counter,
-                    self.lifetime_counter,
-                    self.first_message_sent
-                );
+                trace!("State inputs");
+            } else if log_enabled!(Debug) {
+                match self.state {
+                    SubscriptionState::Closed => {
+                        warn!("State inputs");
+                    },
+                    SubscriptionState::Creating => {
+                        debug!("State inputs");
+                    }
+                    SubscriptionState::Normal => {
+                        trace!("State inputs");
+                    }
+                    SubscriptionState::Late => {
+                        warn!("State inputs");
+                    }
+                    SubscriptionState::KeepAlive => {
+                        debug!("State inputs");
+                    }
+                }
             }
         }
 
@@ -638,6 +768,7 @@ impl Subscription {
             SubscriptionState::Normal | SubscriptionState::Late | SubscriptionState::KeepAlive => {
                 if self.lifetime_counter == 1 {
                     // State #27
+                    debug!("Subscription lifetime expired, closing subscription");
                     self.state = SubscriptionState::Closed;
                     return UpdateStateResult::new(
                         HandledState::Closed27,
@@ -652,6 +783,7 @@ impl Subscription {
 
         match self.state {
             SubscriptionState::Creating => {
+                debug!("Subscription State: Creating");
                 // State #2
                 // CreateSubscription fails, return negative response
                 // Handled in message handler
@@ -664,6 +796,7 @@ impl Subscription {
                 );
             }
             SubscriptionState::Normal => {
+                trace!("Subscription State: Normal");
                 if tick_reason == TickReason::ReceivePublishRequest
                     && (!self.publishing_enabled
                         || (self.publishing_enabled && !p.more_notifications))
@@ -736,6 +869,7 @@ impl Subscription {
                 }
             }
             SubscriptionState::Late => {
+                warn!("Subscription State: Late");
                 if tick_reason == TickReason::ReceivePublishRequest
                     && self.publishing_enabled
                     && (p.notifications_available || p.more_notifications)
@@ -755,6 +889,7 @@ impl Subscription {
                             && !p.more_notifications))
                 {
                     // State #11
+                    debug!("DETECTED STATE 11");
                     self.reset_lifetime_counter();
                     self.state = SubscriptionState::KeepAlive;
                     self.first_message_sent = true;
@@ -764,13 +899,16 @@ impl Subscription {
                     );
                 } else if p.publishing_timer_expired {
                     // State #12
+                    debug!("DETECTED STATE 12");
                     self.start_publishing_timer();
                     return UpdateStateResult::new(HandledState::Late12, UpdateStateAction::None);
                 }
             }
             SubscriptionState::KeepAlive => {
+                trace!("Subscription State: KeepAlive");
                 if tick_reason == TickReason::ReceivePublishRequest {
                     // State #13
+                    debug!("DETECTED STATE 13");
                     return UpdateStateResult::new(
                         HandledState::KeepAlive13,
                         UpdateStateAction::None,
@@ -783,6 +921,7 @@ impl Subscription {
                     // State #14
                     self.first_message_sent = true;
                     self.state = SubscriptionState::Normal;
+                    debug!("DETECTED STATE 14");
                     return UpdateStateResult::new(
                         HandledState::KeepAlive14,
                         UpdateStateAction::ReturnNotifications,
@@ -794,8 +933,14 @@ impl Subscription {
                         || (self.publishing_enabled && p.notifications_available))
                 {
                     // State #15
+                    debug!("DETECTED STATE 15");
                     self.start_publishing_timer();
                     self.reset_keep_alive_counter();
+                    debug!(
+                        keep_alive_counter = self.keep_alive_counter,
+                        keep_alive_counter_max = self.max_keep_alive_counter,
+                        "Keep-alive counter reset",
+                    );
                     return UpdateStateResult::new(
                         HandledState::KeepAlive15,
                         UpdateStateAction::ReturnKeepAlive,
@@ -808,6 +953,8 @@ impl Subscription {
                     // State #16
                     self.start_publishing_timer();
                     self.keep_alive_counter -= 1;
+
+                    debug!("DETECTED STATE 16");
                     return UpdateStateResult::new(
                         HandledState::KeepAlive16,
                         UpdateStateAction::None,
@@ -820,6 +967,7 @@ impl Subscription {
                             && p.notifications_available))
                 {
                     // State #17
+                    debug!("DETECTED STATE 17");
                     self.start_publishing_timer();
                     self.state = SubscriptionState::Late;
                     return UpdateStateResult::new(
@@ -828,7 +976,11 @@ impl Subscription {
                     );
                 }
             }
-            _ => {
+            state => {
+                debug!(
+                    ?state,
+                    "Unhandled subscription state. Doing nothing",
+                );
                 // DO NOTHING
             }
         }
@@ -843,6 +995,7 @@ impl Subscription {
     ///
     /// The function returns a `notifications` and a `more_notifications` boolean to indicate if the notifications
     /// are available.
+    #[tracing::instrument(skip(self, address_space))]
     fn tick_monitored_items(
         &mut self,
         now: &DateTimeUtc,
@@ -944,7 +1097,7 @@ impl Subscription {
         if !monitored_item_notifications.is_empty() {
             let next_sequence_number = self.sequence_number.next();
 
-            trace!(
+            debug!(
                 "Create notification for subscription {}, sequence number {}",
                 self.subscription_id,
                 next_sequence_number
@@ -992,26 +1145,34 @@ impl Subscription {
     /// Reset the keep-alive counter to the maximum keep-alive count of the Subscription.
     /// The maximum keep-alive count is set by the Client when the Subscription is created
     /// and may be modified using the ModifySubscription Service
+    #[tracing::instrument(skip(self))]
     pub fn reset_keep_alive_counter(&mut self) {
         self.keep_alive_counter = self.max_keep_alive_counter;
     }
 
     /// Reset the lifetime counter to the value specified for the life time of the subscription
     /// in the create subscription service
+    #[tracing::instrument(skip(self))]
     pub fn reset_lifetime_counter(&mut self) {
         self.lifetime_counter = self.max_lifetime_counter;
     }
 
     /// Start or restart the publishing timer and decrement the LifetimeCounter Variable.
+    #[tracing::instrument(skip(self))]
     pub fn start_publishing_timer(&mut self) {
         self.lifetime_counter -= 1;
-        trace!("Decrementing life time counter {}", self.lifetime_counter);
+        debug!("Decrementing life time counter {}", self.lifetime_counter);
+
+        // Reset last_time_publishing_interval_elapsed to ensure proper timer scheduling
+        self.last_time_publishing_interval_elapsed = chrono::Utc::now();
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn subscription_id(&self) -> u32 {
         self.subscription_id
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn lifetime_counter(&self) -> u32 {
         self.lifetime_counter
     }

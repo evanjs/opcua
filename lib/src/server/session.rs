@@ -194,6 +194,7 @@ pub struct Session {
 }
 
 impl Drop for Session {
+    #[tracing::instrument(skip(self))]
     fn drop(&mut self) {
         info!("Session is being dropped");
         let mut diagnostics = trace_write_lock!(self.diagnostics);

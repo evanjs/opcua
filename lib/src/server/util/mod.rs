@@ -18,6 +18,7 @@ use crate::server::state::ServerState;
 pub struct PollingAction {}
 
 impl PollingAction {
+    #[tracing::instrument(skip(server_state, action))]
     pub fn spawn<F>(
         server_state: Arc<RwLock<ServerState>>,
         interval_ms: u64,
@@ -26,11 +27,14 @@ impl PollingAction {
     where
         F: 'static + Fn() + Send,
     {
+        debug!("Starting polling action");
         tokio::spawn(async move {
+            debug!("Polling action started");
             let mut timer = interval_at(Instant::now(), Duration::from_millis(interval_ms));
+            debug!("Polling action timer started");
             loop {
                 {
-                    // trace!("polling action.take_while");
+                    trace!("polling action.take_while");
                     let server_state = trace_read_lock!(server_state);
                     // If the server aborts or is in a failed state, this polling timer will stop
                     let abort = match server_state.state() {

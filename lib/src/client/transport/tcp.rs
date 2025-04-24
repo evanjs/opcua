@@ -8,6 +8,7 @@ use crate::core::comms::{
     tcp_types::HelloMessage,
     url::hostname_port_from_url,
 };
+use crate::log_enabled;
 use crate::core::supported_message::SupportedMessage;
 use crate::types::{encoding::BinaryEncoder, StatusCode};
 use futures::StreamExt;
@@ -15,6 +16,8 @@ use parking_lot::RwLock;
 use tokio::io::{AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio_util::codec::FramedRead;
+
+use tracing_log::log;
 
 #[derive(Debug, Clone, Copy)]
 enum TransportCloseState {
@@ -143,16 +146,16 @@ impl TcpTransport {
                 StatusCode::BadCommunicationError
             })?;
         match framed_read.next().await {
-            Some(Ok(Message::Acknowledge(ack))) => {
-                // TODO revise our sizes and other things according to the ACK
-                log::trace!("Received acknowledgement: {:?}", ack);
-            }
             other => {
                 error!(
                     "Unexpected error while waiting for server ACK. Expected ACK, got {:?}",
                     other
                 );
                 return Err(StatusCode::BadConnectionClosed);
+            }
+            Some(Ok(Message::Acknowledge(ack))) => {
+                // TODO revise our sizes and other things according to the ACK
+                log::trace!("Received acknowledgement: {:?}", ack);
             }
         }
 

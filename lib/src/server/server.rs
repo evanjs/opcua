@@ -589,6 +589,7 @@ impl Server {
     /// The function that is supplied does not take any arguments. It is expected that the
     /// implementation will move any variables into the function that are required to perform its
     /// action.
+    #[tracing::instrument(skip(self, action))]
     pub fn add_polling_action<F>(&mut self, interval_ms: u64, action: F)
     where
         F: Fn() + Send + Sync + 'static,
@@ -599,11 +600,24 @@ impl Server {
             error!("Polling action added when server is aborting");
         // DO NOTHING
         } else if !server_state.is_running() {
+            info!(
+                polling_rate = interval_ms,
+                "Server is not running. Queuing polling action"
+            );
             self.pending_polling_actions
                 .push((interval_ms, Box::new(action)));
         } else {
             // Start the action immediately
+            info!(
+                polling_rate = interval_ms,
+                "Server is running. Starting polling action"
+            );
+
             let _ = PollingAction::spawn(self.server_state.clone(), interval_ms, move || {
+                debug!(
+                    polling_rate = interval_ms,
+                    "Polling action interval elapsed. Calling action"
+                );
                 // Call the provided closure with the address space
                 action();
             });
@@ -611,6 +625,7 @@ impl Server {
     }
 
     /// Starts any polling actions which were queued ready to start but not yet
+    #[tracing::instrument(skip(self))]
     fn start_pending_polling_actions(&mut self) {
         let server_state = self.server_state.clone();
         self.pending_polling_actions
@@ -621,6 +636,10 @@ impl Server {
                     interval_ms
                 );
                 let _ = PollingAction::spawn(server_state.clone(), interval_ms, move || {
+                    info!(
+                        polling_rate = interval_ms,
+                        "Polling action interval elapsed. Calling action"
+                    );
                     // Call the provided action
                     action();
                 });

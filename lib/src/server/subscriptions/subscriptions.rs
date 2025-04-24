@@ -300,6 +300,7 @@ impl Subscriptions {
 
     /// Iterates through the existing queued publish requests and creates a timeout
     /// publish response any that have expired.
+    #[tracing::instrument(skip(self))]
     pub fn expire_stale_publish_requests(&mut self, now: &DateTimeUtc) {
         if self.publish_request_queue.is_empty() {
             return;
@@ -322,7 +323,15 @@ impl Subscriptions {
             });
             // The request has timed out if the timestamp plus hint exceeds the input time
             if *now > request_timestamp + publish_request_timeout {
-                debug!("Publish request {} has expired - timestamp = {:?}, expiration hint = {}, publish timeout = {:?}, time now = {:?}, ", request_header.request_handle, request_timestamp, request_timestamp, publish_request_timeout, now);
+                debug!(
+                    ?request_header.request_handle,
+                    ?request_timestamp,
+                    ?request_timestamp,
+                    ?publish_request_timeout,
+                    ?now,
+                    request_id =? request.request_id,
+                    "Publish request has expired"
+                );
                 expired_publish_responses.push_front(PublishResponseEntry {
                     request_id: request.request_id,
                     response: ServiceFault {
